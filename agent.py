@@ -171,7 +171,6 @@ def create_pdf_report(datasets, question, status_callback=None):
 
 
 def dataset_info(datasets):
-
     info = {}
 
     for name, df in datasets.items():
@@ -179,14 +178,11 @@ def dataset_info(datasets):
             "rows": len(df),
             "columns": [str(column) for column in df.columns],
         }
-
     return info
 
 
-def parse_tool_input(value):
-    """Convert model tool input into a normal Python dictionary when possible."""
-
-    if isinstance(value, dict):
+def parse_tool_input(value): #it receives the AI's input value from ai decision
+    if isinstance(value, dict): #Checks whether value is already a dictionary.
         return value
 
     if value is None or value == "":
@@ -194,8 +190,8 @@ def parse_tool_input(value):
 
     if isinstance(value, str):
         try:
-            parsed = json.loads(value)
-            if isinstance(parsed, dict):
+            parsed = json.loads(value) #Converts JSON text into a Python object.
+            if isinstance(parsed, dict): #Checks whether the converted JSON into dictionary.
                 return parsed
             return {"value": parsed}
         except json.JSONDecodeError:
@@ -205,7 +201,6 @@ def parse_tool_input(value):
 
 
 def choose_dataset(datasets, name):
-    """Return the requested DataFrame."""
     if isinstance(name, dict):
         name = (
             name.get("dataset")
@@ -226,15 +221,18 @@ def choose_dataset(datasets, name):
     )
 
 def run_agent(datasets, chat_history, status_callback=None):
-
+    #datasets        → uploaded CSV DataFrames
+    #chat_history    → user's conversation
+    #status_callback → optional UI status function
     if not datasets:
         return (
             "Please upload at least one CSV file first.",
-            [],
-            [],
+            [], #charts
+            [] #reports
         )
 
-    question = last_user_message(chat_history)
+    #chat_history to last_user_message() and stores the returned latest user question in question.
+    question = last_user_message(chat_history) 
 
     if not question:
         return (
@@ -260,6 +258,7 @@ def run_agent(datasets, chat_history, status_callback=None):
     if status_callback:
         status_callback("Understanding your question...")
 
+    #Starts creating the complete instruction text that will be sent to the first AI call
     prompt = (
         SYSTEM_PROMPT
         + "\n\nUPLOADED DATASETS:\n"
@@ -268,6 +267,18 @@ def run_agent(datasets, chat_history, status_callback=None):
         + ", ".join(sorted(SUPPORTED_CHARTS))
     )
 
+    # EXAMPLE
+    # You are an AI Data Analyst.
+    # Choose ONE action...
+    # UPLOADED DATASETS:
+    # sales.csv
+    # 500 rows
+    # columns:
+    # Product
+    # Revenue
+    # Profit
+    # SUPPORTED CHART TYPES:
+    # bar, line, pie
     try:
         response = client.chat.completions.create(
             model=MODEL,
@@ -278,12 +289,12 @@ def run_agent(datasets, chat_history, status_callback=None):
                 },
                 {
                     "role": "user",
-                    "content": question,
+                    "content": question, #last user question
                 },
             ],
             response_format=DECISION_FORMAT,
-            reasoning_effort="none",
-            temperature=0.1,
+            reasoning_effort="none", #Tells the API not to use an additional reasoning-effort
+            temperature=0.1,#Sets the model's response randomness to 0.1.For this agent, a low value helps produce more consistent decisions.
             max_completion_tokens=512,
             extra_body={
                 "reasoning_format": "hidden"
@@ -306,7 +317,7 @@ def run_agent(datasets, chat_history, status_callback=None):
         )
 
     try:
-        decision = json.loads(raw)
+        decision = json.loads(raw) #Converts the AI's JSON text into a Python dictionary
         action = decision["action"]
         tool_input = decision["input"]
     except Exception as e:
@@ -325,7 +336,6 @@ def run_agent(datasets, chat_history, status_callback=None):
         )
 
     try:
-
         if action == "inspect":
 
             data = parse_tool_input(tool_input)
@@ -347,9 +357,7 @@ def run_agent(datasets, chat_history, status_callback=None):
         elif action == "analyse":
 
             data = parse_tool_input(tool_input)
-
             dataset_name = data.get("dataset")
-
             df, dataset_name = choose_dataset(
                 datasets,
                 dataset_name,
@@ -366,15 +374,45 @@ def run_agent(datasets, chat_history, status_callback=None):
                 df=df,
                 datasets={dataset_name: df},
             )
-
             tool_name = "analyse_dataframe"
+            
+# USER
+#   ↓
+# "What are the top 5 products by profit?"
+#   ↓
+# FIRST AI CALL
+#   ↓
+# action = "analyse"
+#   ↓
+# tool_input
+#   ↓
+# parse_tool_input()
+#   ↓
+# data
+# {
+#   dataset: sales.csv
+#   operation: groupby_sum
+#   group_by: Product
+#   metric: Profit
+#   sort: desc
+#   limit: 5
+# }
+#   ↓
+# choose_dataset()
+#   ↓
+# df = sales.csv DataFrame
+#   ↓
+# analyse_dataframe()
+#   ↓
+# ACTUAL CALCULATION
+#   ↓
+# result
+#   ↓
+# tool_name = "analyse_dataframe"
 
         elif action == "chart":
-
             data = parse_tool_input(tool_input)
-
             dataset_name = data.get("dataset")
-
             df, dataset_name = choose_dataset(
                 datasets,
                 dataset_name,
